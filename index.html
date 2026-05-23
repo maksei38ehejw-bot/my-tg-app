@@ -41,7 +41,6 @@
         const ctx = canvas.getContext("2d");
         const btn = document.getElementById("action-btn");
 
-        // Подгоняем размер под экран телефона
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight - 80;
 
@@ -49,27 +48,24 @@
         let gameOver = false;
         let gameStarted = false;
         
-        // Платформа игрока
-        const player = { x: canvas.width / 2 - 40, y: canvas.height - 40, w: 80, h: 15, speed: 8 };
+        const player = { x: canvas.width / 2 - 40, y: canvas.height - 40, w: 80, h: 15 };
         let items = [];
 
-        // Управление пальцем / мышкой
         window.addEventListener("pointermove", (e) => {
             if (!gameStarted || gameOver) return;
             player.x = e.clientX - player.w / 2;
-            // Ограничения экрана
             if (player.x < 0) player.x = 0;
             if (player.x > canvas.width - player.w) player.x = canvas.width - player.w;
         });
 
         function spawnItem() {
             if (!gameStarted || gameOver) return;
-            const isMeteor = Math.random() < 0.35; // 35% шанс спавна метеорита
+            const isMeteor = Math.random() < 0.35;
             items.push({
                 x: Math.random() * (canvas.width - 20),
                 y: -20,
                 radius: isMeteor ? 12 : 8,
-                speed: 3 + Math.random() * 4 + (score * 0.1), // Скорость растет со счетом
+                speed: 3 + Math.random() * 4 + (score * 0.1),
                 type: isMeteor ? "meteor" : "star"
             });
             setTimeout(spawnItem, Math.max(300, 800 - score * 10));
@@ -82,22 +78,22 @@
                 let item = items[i];
                 item.y += item.speed;
 
-                // Проверка столкновения с платформой игрока
                 if (item.y + item.radius >= player.y && item.x >= player.x && item.x <= player.x + player.w) {
                     if (item.type === "star") {
                         score += 1;
                         if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
                     } else {
-                        // Попали на метеорит - Конец игры
                         gameOver = true;
                         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+                        
+                        // Показываем кнопку сохранения обратно после проигрыша!
+                        btn.style.display = "block";
                         btn.innerText = "💾 Сохранить результат";
                     }
                     items.splice(i, 1);
                     continue;
                 }
 
-                // Удаление улетевших объектов
                 if (item.y > canvas.height) {
                     items.splice(i, 1);
                 }
@@ -107,13 +103,11 @@
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Отрисовка игрока (Неоновая тарелка)
             ctx.fillStyle = "#45f3ff";
             ctx.shadowBlur = 15;
             ctx.shadowColor = "#45f3ff";
-            ctx.fillRect(player.x, player.y, player.w, player.h, 5);
+            ctx.fillRect(player.x, player.y, player.w, player.h);
 
-            // Отрисовка падающих предметов
             items.forEach(item => {
                 ctx.beginPath();
                 ctx.arc(item.x, item.y, item.radius, 0, Math.PI * 2);
@@ -127,7 +121,6 @@
                 ctx.fill();
             });
 
-            // Отрисовка интерфейса счета
             ctx.shadowBlur = 0;
             ctx.fillStyle = "#ffffff";
             ctx.font = "bold 24px sans-serif";
@@ -151,10 +144,9 @@
         function handleBtnClick() {
             if (!gameStarted) {
                 gameStarted = true;
-                btn.style.display = "none";
+                btn.style.display = "none"; // Прячем кнопку "Старт" во время игры
                 spawnItem();
             } else if (gameOver) {
-                // Отправка счета в бота при выходе
                 tg.sendData(JSON.stringify({ caught_stars: score }));
                 tg.close();
             }
