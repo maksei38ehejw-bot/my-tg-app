@@ -3,24 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>UFO Catcher</title>
+    <title>Flappy Neon Bird</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
-            margin: 0; padding: 0; background-color: #0b0c10;
+            margin: 0; padding: 0; background-color: #0d1117;
             overflow: hidden; font-family: sans-serif; user-select: none;
             touch-action: none; display: flex; flex-direction: column; height: 100vh;
         }
-        #gameCanvas { background: radial-gradient(circle, #1f2833, #0b0c10); display: block; }
+        #gameCanvas { background: linear-gradient(to bottom, #0d1b2a, #1b263b); display: block; }
         .ui-panel {
             position: absolute; bottom: 20px; left: 0; right: 0;
-            display: flex; justify-content: center; gap: 20px; pointer-events: none;
+            display: flex; justify-content: center; pointer-events: none;
         }
         .btn {
-            background: linear-gradient(45deg, #45f3ff, #d400d4);
-            color: white; border: none; padding: 15px 35px;
+            background: linear-gradient(45deg, #ff007f, #7f00ff);
+            color: white; border: none; padding: 15px 40px;
             font-size: 18px; font-weight: bold; border-radius: 25px;
-            cursor: pointer; pointer-events: auto; box-shadow: 0 0 15px rgba(69, 243, 255, 0.4);
+            cursor: pointer; pointer-events: auto; box-shadow: 0 0 15px rgba(255, 0, 127, 0.4);
         }
         .btn:active { transform: scale(0.95); }
     </style>
@@ -41,61 +41,93 @@
         const ctx = canvas.getContext("2d");
         const btn = document.getElementById("action-btn");
 
+        // Адаптируем под размеры экрана Telegram
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight - 80;
 
         let score = 0;
         let gameOver = false;
         let gameStarted = false;
-        
-        const player = { x: canvas.width / 2 - 40, y: canvas.height - 40, w: 80, h: 15 };
-        let items = [];
 
-        window.addEventListener("pointermove", (e) => {
+        // Настройки птички
+        const bird = {
+            x: 50,
+            y: canvas.height / 2,
+            radius: 12,
+            gravity: 0.4,
+            velocity: 0,
+            jump: -6.5
+        };
+
+        // Настройки труб
+        let pipes = [];
+        const pipeWidth = 50;
+        const pipeGap = 130; // Просвет между верхней и нижней трубой (чем меньше, тем сложнее)
+        const pipeSpeed = 2.5;
+
+        // Прыжок при тапе по экрану
+        window.addEventListener("pointerdown", (e) => {
+            // Игнорируем тапы по кнопке «Старт» / «Сохранить»
+            if (e.target.tagName === "BUTTON") return;
             if (!gameStarted || gameOver) return;
-            player.x = e.clientX - player.w / 2;
-            if (player.x < 0) player.x = 0;
-            if (player.x > canvas.width - player.w) player.x = canvas.width - player.w;
+            
+            bird.velocity = bird.jump;
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
         });
 
-        function spawnItem() {
+        function spawnPipe() {
             if (!gameStarted || gameOver) return;
-            const isMeteor = Math.random() < 0.35;
-            items.push({
-                x: Math.random() * (canvas.width - 20),
-                y: -20,
-                radius: isMeteor ? 12 : 8,
-                speed: 3 + Math.random() * 4 + (score * 0.1),
-                type: isMeteor ? "meteor" : "star"
+            
+            // Генерируем случайную высоту для верхней трубы
+            const minHeight = 50;
+            const maxHeight = canvas.height - pipeGap - 50;
+            const topHeight = Math.floor(Math.random() * (maxHeight - minHeight)) + minHeight;
+
+            pipes.push({
+                x: canvas.width,
+                top: topHeight,
+                bottom: canvas.height - topHeight - pipeGap,
+                passed: false
             });
-            setTimeout(spawnItem, Math.max(300, 800 - score * 10));
+
+            // Спавним новую трубу каждые 120 кадров (примерно раз в 2 секунды)
+            setTimeout(spawnPipe, 1800);
         }
 
         function update() {
             if (!gameStarted || gameOver) return;
 
-            for (let i = items.length - 1; i >= 0; i--) {
-                let item = items[i];
-                item.y += item.speed;
+            // Физика птички
+            bird.velocity += bird.gravity;
+            bird.y += bird.velocity;
 
-                if (item.y + item.radius >= player.y && item.x >= player.x && item.x <= player.x + player.w) {
-                    if (item.type === "star") {
-                        score += 1;
-                        if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
-                    } else {
-                        gameOver = true;
-                        if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
-                        
-                        // Показываем кнопку сохранения обратно после проигрыша!
-                        btn.style.display = "block";
-                        btn.innerText = "💾 Сохранить результат";
+            // Проверка на удар об пол или потолок
+            if (bird.y + bird.radius >= canvas.height || bird.y - bird.radius <= 0) {
+                endGame();
+            }
+
+            // Движение труб
+            for (let i = pipes.length - 1; i >= 0; i--) {
+                let p = pipes[i];
+                p.x -= pipeSpeed;
+
+                // Проверка столкновения с верхней трубой
+                if (bird.x + bird.radius > p.x && bird.x - bird.radius < p.x + pipeWidth) {
+                    if (bird.y - bird.radius < p.top || bird.y + bird.radius > canvas.height - p.bottom) {
+                        endGame();
                     }
-                    items.splice(i, 1);
-                    continue;
                 }
 
-                if (item.y > canvas.height) {
-                    items.splice(i, 1);
+                // Засчитываем очко, если пролетели трубу
+                if (!p.passed && p.x + pipeWidth < bird.x) {
+                    score++;
+                    p.passed = true;
+                    if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+                }
+
+                // Удаляем трубы, улетевшие за экран
+                if (p.x + pipeWidth < 0) {
+                    pipes.splice(i, 1);
                 }
             }
         }
@@ -103,36 +135,46 @@
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            ctx.fillStyle = "#45f3ff";
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = "#45f3ff";
-            ctx.fillRect(player.x, player.y, player.w, player.h);
-
-            items.forEach(item => {
-                ctx.beginPath();
-                ctx.arc(item.x, item.y, item.radius, 0, Math.PI * 2);
-                if (item.type === "star") {
-                    ctx.fillStyle = "#ff00ff";
-                    ctx.shadowColor = "#ff00ff";
-                } else {
-                    ctx.fillStyle = "#ff3333";
-                    ctx.shadowColor = "#ff3333";
-                }
-                ctx.fill();
+            // Рисуем трубы (неоновые зеленые прямоугольники)
+            pipes.forEach(p => {
+                ctx.fillStyle = "#39ff14";
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = "#39ff14";
+                
+                // Верхняя труба
+                ctx.fillRect(p.x, 0, pipeWidth, p.top);
+                // Нижняя труба
+                ctx.fillRect(p.x, canvas.height - p.bottom, pipeWidth, p.bottom);
             });
 
+            // Рисуем птичку (светящийся розовый круг)
+            ctx.beginPath();
+            ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
+            ctx.fillStyle = "#ff007f";
+            ctx.shadowColor = "#ff007f";
+            ctx.shadowBlur = 15;
+            ctx.fill();
+
+            // Рисуем счетчик
             ctx.shadowBlur = 0;
             ctx.fillStyle = "#ffffff";
-            ctx.font = "bold 24px sans-serif";
-            ctx.fillText(`Очки: ${score}`, 20, 40);
+            ctx.font = "bold 26px sans-serif";
+            ctx.fillText(`Счет: ${score}`, 20, 40);
 
             if (gameOver) {
-                ctx.fillStyle = "#ff3333";
+                ctx.fillStyle = "#ff0055";
                 ctx.font = "bold 36px sans-serif";
                 ctx.textAlign = "center";
                 ctx.fillText("ИГРА ОКОНЧЕНА", canvas.width / 2, canvas.height / 2);
                 ctx.textAlign = "left";
             }
+        }
+
+        function endGame() {
+            gameOver = true;
+            if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
+            btn.style.display = "block";
+            btn.innerText = "💾 Сохранить результат";
         }
 
         function gameLoop() {
@@ -144,9 +186,10 @@
         function handleBtnClick() {
             if (!gameStarted) {
                 gameStarted = true;
-                btn.style.display = "none"; // Прячем кнопку "Старт" во время игры
-                spawnItem();
+                btn.style.display = "none";
+                spawnPipe();
             } else if (gameOver) {
+                // Передаем счет обратно в Python-бота под тем же ключом
                 tg.sendData(JSON.stringify({ caught_stars: score }));
                 tg.close();
             }
