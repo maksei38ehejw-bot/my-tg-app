@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Flappy Neon Bird</title>
+    <title>Flappy Neon Bird Pro</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
@@ -11,18 +11,35 @@
             overflow: hidden; font-family: sans-serif; user-select: none;
             touch-action: none; display: flex; flex-direction: column; height: 100vh;
         }
-        #gameCanvas { background: linear-gradient(to bottom, #0d1b2a, #1b263b); display: block; }
+        #gameCanvas { background: #070a13; display: block; }
+        
         .ui-panel {
             position: absolute; bottom: 20px; left: 0; right: 0;
-            display: flex; justify-content: center; pointer-events: none;
+            display: flex; justify-content: center; gap: 15px; pointer-events: none;
         }
         .btn {
             background: linear-gradient(45deg, #ff007f, #7f00ff);
-            color: white; border: none; padding: 15px 40px;
-            font-size: 18px; font-weight: bold; border-radius: 25px;
+            color: white; border: none; padding: 15px 30px;
+            font-size: 16px; font-weight: bold; border-radius: 25px;
             cursor: pointer; pointer-events: auto; box-shadow: 0 0 15px rgba(255, 0, 127, 0.4);
         }
         .btn:active { transform: scale(0.95); }
+        .btn-shop { background: linear-gradient(45deg, #00f2fe, #4facfe); box-shadow: 0 0 15px rgba(0, 242, 254, 0.4); }
+
+        #shop-modal {
+            display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 85%; max-width: 320px; background: rgba(19, 26, 41, 0.95);
+            border: 2px solid #00f2fe; border-radius: 20px; padding: 20px; box-shadow: 0 0 25px #00f2fe;
+            color: white; text-align: center; box-sizing: border-box; z-index: 10;
+        }
+        .shop-title { font-size: 22px; font-weight: bold; margin-bottom: 15px; color: #00f2fe; }
+        .shop-item {
+            display: flex; justify-content: space-between; align-items: center;
+            background: rgba(255,255,255,0.05); padding: 10px; margin: 8px 0; border-radius: 10px;
+        }
+        .skin-preview { width: 20px; height: 20px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .buy-btn { background: #39ff14; color: black; border: none; padding: 6px 12px; font-weight: bold; border-radius: 5px; cursor: pointer; }
+        .buy-btn.equipped { background: #7f00ff; color: white; }
     </style>
 </head>
 <body>
@@ -31,6 +48,27 @@
     
     <div class="ui-panel">
         <button class="btn" id="action-btn" onclick="handleBtnClick()">Старт</button>
+        <button class="btn btn-shop" id="shop-btn" onclick="toggleShop(true)">🏪 Магазин</button>
+    </div>
+
+    <div id="shop-modal">
+        <div class="shop-title">Кастомизация</div>
+        <div style="margin-bottom: 15px; font-size: 14px;">Твои монеты: <span id="shop-coins" style="color:#ffd700; font-weight:bold;">0</span> 🪙</div>
+        
+        <div class="shop-item">
+            <div><span class="skin-preview" style="background: #ff4500;"></span>Феникс (Редкий)</div>
+            <button class="buy-btn equipped" id="btn-skin-default" onclick="selectSkin('default')">Выбран</button>
+        </div>
+        <div class="shop-item">
+            <div><span class="skin-preview" style="background: #00f2fe;"></span>Кибер-Птица</div>
+            <button class="buy-btn" id="btn-skin-ice" onclick="buySkin('ice', 10)">10 🪙</button>
+        </div>
+        <div class="shop-item">
+            <div><span class="skin-preview" style="background: #ffd700;"></span>Золотой Дракон</div>
+            <button class="buy-btn" id="btn-skin-gold" onclick="buySkin('gold', 30)">30 🪙</button>
+        </div>
+        
+        <button class="btn" style="margin-top: 15px; padding: 10px 20px; font-size: 14px;" onclick="toggleShop(false)">Закрыть</button>
     </div>
 
     <script>
@@ -40,35 +78,42 @@
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
         const btn = document.getElementById("action-btn");
+        const shopBtn = document.getElementById("shop-btn");
 
-        // Адаптируем под размеры экрана Telegram
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight - 80;
 
         let score = 0;
         let gameOver = false;
         let gameStarted = false;
+        let flapCycle = 0; // Для анимации махов крыльев
 
-        // Настройки птички
-        const bird = {
-            x: 50,
-            y: canvas.height / 2,
-            radius: 12,
-            gravity: 0.4,
-            velocity: 0,
-            jump: -6.5
+        // Экономика
+        let totalCoins = parseInt(localStorage.getItem("coins")) || 0;
+        let ownedSkins = JSON.parse(localStorage.getItem("ownedSkins")) || ["default"];
+        let currentSkin = localStorage.getItem("currentSkin") || "default";
+
+        // Палитра скинов (Основной, Дополнительный, Крыло)
+        const skinColors = {
+            default: { body: "#ff4500", beak: "#ffcc00", wing: "#ff0055" },
+            ice: { body: "#00f2fe", beak: "#ffffff", wing: "#007acc" },
+            gold: { body: "#ffd700", beak: "#ff6600", wing: "#b8860b" }
         };
 
-        // Настройки труб
+        const bird = { x: 60, y: canvas.height / 2, radius: 14, gravity: 0.38, velocity: 0, jump: -6.2 };
         let pipes = [];
-        const pipeWidth = 50;
-        const pipeGap = 130; // Просвет между верхней и нижней трубой (чем меньше, тем сложнее)
-        const pipeSpeed = 2.5;
+        const pipeWidth = 56;
+        const pipeGap = 140;
+        const pipeSpeed = 2.4;
 
-        // Прыжок при тапе по экрану
+        // Звездный фон (Параллакс эффект)
+        let starsBackground = [];
+        for(let i=0; i<30; i++) {
+            starsBackground.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height, size: Math.random()*2+1, speed: Math.random()*0.5+0.2 });
+        }
+
         window.addEventListener("pointerdown", (e) => {
-            // Игнорируем тапы по кнопке «Старт» / «Сохранить»
-            if (e.target.tagName === "BUTTON") return;
+            if (e.target.tagName === "BUTTON" || e.target.closest("#shop-modal")) return;
             if (!gameStarted || gameOver) return;
             
             bird.velocity = bird.jump;
@@ -77,89 +122,180 @@
 
         function spawnPipe() {
             if (!gameStarted || gameOver) return;
-            
-            // Генерируем случайную высоту для верхней трубы
-            const minHeight = 50;
-            const maxHeight = canvas.height - pipeGap - 50;
+            const minHeight = 60;
+            const maxHeight = canvas.height - pipeGap - 60;
             const topHeight = Math.floor(Math.random() * (maxHeight - minHeight)) + minHeight;
 
-            pipes.push({
-                x: canvas.width,
-                top: topHeight,
-                bottom: canvas.height - topHeight - pipeGap,
-                passed: false
-            });
-
-            // Спавним новую трубу каждые 120 кадров (примерно раз в 2 секунды)
-            setTimeout(spawnPipe, 1800);
+            pipes.push({ x: canvas.width, top: topHeight, bottom: canvas.height - topHeight - pipeGap, passed: false });
+            setTimeout(spawnPipe, 1700);
         }
 
         function update() {
             if (!gameStarted || gameOver) return;
 
-            // Физика птички
+            // Движение звездного фона
+            starsBackground.forEach(s => {
+                s.x -= s.speed;
+                if(s.x < 0) s.x = canvas.width;
+            });
+
             bird.velocity += bird.gravity;
             bird.y += bird.velocity;
+            flapCycle += 0.15; // Скорость анимации крыльев
 
-            // Проверка на удар об пол или потолок
             if (bird.y + bird.radius >= canvas.height || bird.y - bird.radius <= 0) {
                 endGame();
             }
 
-            // Движение труб
             for (let i = pipes.length - 1; i >= 0; i--) {
                 let p = pipes[i];
                 p.x -= pipeSpeed;
 
-                // Проверка столкновения с верхней трубой
-                if (bird.x + bird.radius > p.x && bird.x - bird.radius < p.x + pipeWidth) {
-                    if (bird.y - bird.radius < p.top || bird.y + bird.radius > canvas.height - p.bottom) {
+                // Точное столкновение круг-прямоугольник
+                if (bird.x + bird.radius - 3 > p.x && bird.x - bird.radius + 3 < p.x + pipeWidth) {
+                    if (bird.y - bird.radius + 3 < p.top || bird.y + bird.radius - 3 > canvas.height - p.bottom) {
                         endGame();
                     }
                 }
 
-                // Засчитываем очко, если пролетели трубу
                 if (!p.passed && p.x + pipeWidth < bird.x) {
                     score++;
+                    totalCoins++;
+                    localStorage.setItem("coins", totalCoins);
                     p.passed = true;
                     if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
                 }
 
-                // Удаляем трубы, улетевшие за экран
                 if (p.x + pipeWidth < 0) {
                     pipes.splice(i, 1);
                 }
             }
         }
 
+        // РЕНДЕРИНГ ТЕКСТУР ЧЕРЕЗ CANVAS API
+        function drawBird(x, y, colors) {
+            ctx.save();
+            ctx.translate(x, y);
+            
+            // Наклон птички по траектории полета
+            let angle = Math.min(Math.PI / 6, Math.max(-Math.PI / 8, bird.velocity * 0.04));
+            ctx.rotate(angle);
+
+            // Текстура Тела (Свечение + Градиент)
+            let bodyGrad = ctx.createRadialGradient(-3, -3, 2, 0, 0, bird.radius);
+            bodyGrad.addColorStop(0, "#ffffff");
+            bodyGrad.addColorStop(0.4, colors.body);
+            bodyGrad.addColorStop(1, "#000000");
+            
+            ctx.beginPath();
+            ctx.arc(0, 0, bird.radius, 0, Math.PI * 2);
+            ctx.fillStyle = bodyGrad;
+            ctx.shadowColor = colors.body;
+            ctx.shadowBlur = 10;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Глазик птички
+            ctx.beginPath();
+            ctx.arc(5, -4, 3, 0, Math.PI * 2);
+            ctx.fillStyle = "#ffffff";
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(6, -4, 1.2, 0, Math.PI * 2);
+            ctx.fillStyle = "#000000";
+            ctx.fill();
+
+            // Клюв текстурный
+            ctx.beginPath();
+            ctx.moveTo(bird.radius - 2, -2);
+            ctx.lineTo(bird.radius + 8, 2);
+            ctx.lineTo(bird.radius - 2, 6);
+            ctx.closePath();
+            ctx.fillStyle = colors.beak;
+            ctx.fill();
+
+            // Анимированное крыло (Вверх-вниз по синусоиде)
+            let wingYShift = Math.sin(flapCycle) * 5;
+            ctx.beginPath();
+            ctx.ellipse(-4, wingYShift, 7, 5, Math.PI/4, 0, Math.PI * 2);
+            ctx.fillStyle = colors.wing;
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 1;
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        function drawPipe(x, y, width, height, isTop) {
+            ctx.save();
+            
+            // Создаем металлический 3D-градиент для трубы
+            let pipeGrad = ctx.createLinearGradient(x, 0, x + width, 0);
+            pipeGrad.addColorStop(0, "#224411");
+            pipeGrad.addColorStop(0.2, "#39ff14");
+            pipeGrad.addColorStop(0.5, "#99ff66");
+            pipeGrad.addColorStop(0.8, "#224411");
+            pipeGrad.addColorStop(1, "#112205");
+
+            ctx.fillStyle = pipeGrad;
+            ctx.shadowColor = "#39ff14";
+            ctx.shadowBlur = 4;
+            
+            // Основное тело трубы
+            ctx.fillRect(x, y, width, height);
+            ctx.shadowBlur = 0;
+
+            // Текстурный ободок трубы (набалдашник)
+            let rimHeight = 24;
+            let rimWidth = width + 8;
+            let rimX = x - 4;
+            let rimY = isTop ? y + height - rimHeight : y;
+
+            let rimGrad = ctx.createLinearGradient(rimX, 0, rimX + rimWidth, 0);
+            rimGrad.addColorStop(0, "#224411");
+            rimGrad.addColorStop(0.3, "#a6ff80");
+            rimGrad.addColorStop(0.7, "#39ff14");
+            rimGrad.addColorStop(1, "#112205");
+
+            ctx.fillStyle = rimGrad;
+            ctx.fillRect(rimX, rimY, rimWidth, rimHeight);
+            
+            // Прорисовка заклепок/ободков для объема
+            ctx.strokeStyle = "rgba(0,0,0,0.4)";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(rimX, rimY, rimWidth, rimHeight);
+
+            ctx.restore();
+        }
+
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Рисуем трубы (неоновые зеленые прямоугольники)
-            pipes.forEach(p => {
-                ctx.fillStyle = "#39ff14";
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = "#39ff14";
-                
-                // Верхняя труба
-                ctx.fillRect(p.x, 0, pipeWidth, p.top);
-                // Нижняя труба
-                ctx.fillRect(p.x, canvas.height - p.bottom, pipeWidth, p.bottom);
+            // 1. Задний фон: Звезды
+            ctx.fillStyle = "rgba(255,255,255,0.8)";
+            starsBackground.forEach(s => {
+                ctx.fillRect(s.x, s.y, s.size, s.size);
             });
 
-            // Рисуем птичку (светящийся розовый круг)
-            ctx.beginPath();
-            ctx.arc(bird.x, bird.y, bird.radius, 0, Math.PI * 2);
-            ctx.fillStyle = "#ff007f";
-            ctx.shadowColor = "#ff007f";
-            ctx.shadowBlur = 15;
-            ctx.fill();
+            // 2. Рисуем трубы с текстурами
+            pipes.forEach(p => {
+                // Верхняя
+                drawPipe(p.x, 0, pipeWidth, p.top, true);
+                // Нижняя
+                drawPipe(p.x, canvas.height - p.bottom, pipeWidth, p.bottom, false);
+            });
 
-            // Рисуем счетчик
-            ctx.shadowBlur = 0;
+            // 3. Рисуем птичку с выбранными цветами текстуры
+            drawBird(bird.x, bird.y, skinColors[currentSkin]);
+
+            // 4. UI Текст
             ctx.fillStyle = "#ffffff";
-            ctx.font = "bold 26px sans-serif";
+            ctx.font = "bold 20px sans-serif";
             ctx.fillText(`Счет: ${score}`, 20, 40);
+            
+            ctx.fillStyle = "#ffd700";
+            ctx.fillText(`🪙 Кошелек: ${totalCoins}`, canvas.width - 160, 40);
 
             if (gameOver) {
                 ctx.fillStyle = "#ff0055";
@@ -174,6 +310,7 @@
             gameOver = true;
             if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("error");
             btn.style.display = "block";
+            shopBtn.style.display = "block";
             btn.innerText = "💾 Сохранить результат";
         }
 
@@ -187,12 +324,64 @@
             if (!gameStarted) {
                 gameStarted = true;
                 btn.style.display = "none";
+                shopBtn.style.display = "none";
+                pipes = [];
+                bird.y = canvas.height / 2;
+                bird.velocity = 0;
+                score = 0;
+                gameOver = false;
                 spawnPipe();
             } else if (gameOver) {
-                // Передаем счет обратно в Python-бота под тем же ключом
                 tg.sendData(JSON.stringify({ caught_stars: score }));
                 tg.close();
             }
+        }
+
+        function toggleShop(show) {
+            document.getElementById("shop-modal").style.display = show ? "block" : "none";
+            document.getElementById("shop-coins").innerText = totalCoins;
+            updateShopButtons();
+        }
+
+        function buySkin(skinId, price) {
+            if (ownedSkins.includes(skinId)) {
+                selectSkin(skinId);
+                return;
+            }
+            if (totalCoins >= price) {
+                totalCoins -= price;
+                localStorage.setItem("coins", totalCoins);
+                ownedSkins.push(skinId);
+                localStorage.setItem("ownedSkins", JSON.stringify(ownedSkins));
+                selectSkin(skinId);
+                document.getElementById("shop-coins").innerText = totalCoins;
+            } else {
+                alert("Не хватает монет! Летай больше 🪙");
+            }
+        }
+
+        function selectSkin(skinId) {
+            if (!ownedSkins.includes(skinId)) return;
+            currentSkin = skinId;
+            localStorage.setItem("currentSkin", currentSkin);
+            updateShopButtons();
+        }
+
+        function updateShopButtons() {
+            const skins = ["default", "ice", "gold"];
+            skins.forEach(s => {
+                const b = document.getElementById(`btn-skin-${s}`);
+                if (!b) return;
+                if (currentSkin === s) {
+                    b.innerText = "Выбран";
+                    b.className = "buy-btn equipped";
+                } else if (ownedSkins.includes(s)) {
+                    b.innerText = "Надеть";
+                    b.className = "buy-btn";
+                    b.style.background = "#4facfe";
+                    b.style.color = "white";
+                }
+            });
         }
 
         gameLoop();
